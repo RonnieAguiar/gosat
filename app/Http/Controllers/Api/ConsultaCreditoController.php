@@ -16,19 +16,23 @@ class ConsultaCreditoController extends Controller
     public function consultar(Request $request)
     {
         $cpf = preg_replace('/[^0-9]/', '', $request->input('cpf'));
+        $valorRequisitado = $request->input('valor');
+
         if (strlen($cpf) !== 11) {
             return response()->json(['erro' => 'CPF inválido'], 422);
         }
 
         DB::beginTransaction();
         try {
-            $cpf = Cpf::firstOrCreate(['cpf' => $cpf]);
+            $cpfModel = Cpf::firstOrCreate(['cpf' => $cpf]);
 
-            $consulta = $cpf->consultas()->create([
+            $consulta = $cpfModel->consultas()->create([
                 'consultado_em' => now(),
             ]);
 
-            $dadosInstituicoes = $this->getInstituicoes($cpf->cpf);
+            $dadosInstituicoes = $this->getInstituicoes($cpf);
+
+            $ofertas = [];
 
             foreach ($dadosInstituicoes as $inst) {
                 $instituicao = Instituicao::updateOrCreate(
@@ -45,30 +49,53 @@ class ConsultaCreditoController extends Controller
                         ['nome' => $mod['nome']]
                     );
 
-                    $detalhes = $this->getDetalhes($cpf->cpf, $instituicao->id, $mod['cod']);
+                    $detalhes = $this->getDetalhes($cpf, $instituicao->id, $mod['cod']);
 
                     DetalheModalidade::updateOrCreate([
-                        [
-                            'cpf_id' => $cpf->id,
-                            'modalidade_id' => $modalidade->id,
-                        ],
-                        [
-                            'qnt_parcela_min' => $detalhes['QntParcelaMin'],
-                            'qnt_parcela_max' => $detalhes['QntParcelaMax'],
-                            'valor_min' => $detalhes['valorMin'],
-                            'valor_max' => $detalhes['valorMax'],
-                            'juros_mes' => $detalhes['jurosMes'],
-                        ]
+                        'cpf_id' => $cpfModel->id,
+                        'modalidade_id' => $modalidade->id,
+                    ], [
+                        'qnt_parcela_min' => $detalhes['QntParcelaMin'],
+                        'qnt_parcela_max' => $detalhes['QntParcelaMax'],
+                        'valor_min' => $detalhes['valorMin'],
+                        'valor_max' => $detalhes['valorMax'],
+                        'juros_mes' => $detalhes['jurosMes'],
                     ]);
+
+                    $valorSolicitado = $detalhes['valorMax'] > $valorRequisitado ? $valorRequisitado : $detalhes['valorMax'];
+                    $qntParcelas = $detalhes['QntParcelaMin'];
+                    $jurosMes = $detalhes['jurosMes'];
+
+                    $valorAPagar = $valorSolicitado * pow(1 + $jurosMes, $qntParcelas);
+
+                    $ofertas[] = [
+                        'instituicaoFinanceira' => $instituicao->nome,
+                        'modalidadeCredito' => $modalidade->nome,
+                        'valorDisponivel' => $valorSolicitado,
+                        'qntParcelas' => $qntParcelas,
+                        'taxaJuros' => $jurosMes,
+                        'valorAPagar' => round($valorAPagar, 2),
+                    ];
                 }
             }
 
             DB::commit();
 
-            return response()->json(['mensagem' => 'Consulta realizada com sucesso.']);
+            $melhoresOfertas = collect($ofertas)
+                ->sortBy('valorAPagar')
+                ->values()
+                ->take(3);
+
+            return response()->json([
+                'mensagem' => 'Consulta realizada com sucesso.',
+                'melhores_ofertas' => $melhoresOfertas,
+            ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['erro' => 'Erro ao consultar créditos', 'detalhe' => $e->getMessage(), 'trace' => $e->getTrace()], 500);
+            return response()->json([
+                'erro' => 'Erro ao consultar créditos',
+                'detalhe' => $e->getMessage(),
+            ], 500);
         }
     }
 
