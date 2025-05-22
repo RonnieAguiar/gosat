@@ -16,7 +16,7 @@ class ConsultaCreditoController extends Controller
     public function consultar(Request $request)
     {
         $cpf = preg_replace('/[^0-9]/', '', $request->input('cpf'));
-        $valorRequisitado = $request->input('valor');
+        $valorSolicitado = $request->input('valor') ?? 0;
 
         if (strlen($cpf) !== 11) {
             return response()->json(['erro' => 'CPF inválido'], 422);
@@ -62,20 +62,21 @@ class ConsultaCreditoController extends Controller
                         'juros_mes' => $detalhes['jurosMes'],
                     ]);
 
-                    $valorSolicitado = $detalhes['valorMax'] > $valorRequisitado ? $valorRequisitado : $detalhes['valorMax'];
-                    $qntParcelas = $detalhes['QntParcelaMin'];
-                    $jurosMes = $detalhes['jurosMes'];
+                    if ($detalhes['valorMin'] <= $valorSolicitado && $detalhes['valorMax'] >= $valorSolicitado) {
+                        $qntParcelas = $detalhes['QntParcelaMin'];
+                        $jurosMes = $detalhes['jurosMes'];
 
-                    $valorAPagar = $valorSolicitado * pow(1 + $jurosMes, $qntParcelas);
+                        $valorAPagar = $valorSolicitado * pow(1 + $jurosMes, $qntParcelas);
 
-                    $ofertas[] = [
-                        'instituicaoFinanceira' => $instituicao->nome,
-                        'modalidadeCredito' => $modalidade->nome,
-                        'valorDisponivel' => $valorSolicitado,
-                        'qntParcelas' => $qntParcelas,
-                        'taxaJuros' => $jurosMes,
-                        'valorAPagar' => round($valorAPagar, 2),
-                    ];
+                        $ofertas[] = [
+                            'instituicaoFinanceira' => $instituicao->nome,
+                            'modalidadeCredito' => $modalidade->nome,
+                            'valorRequisitado' => $valorSolicitado,
+                            'qntParcelas' => $qntParcelas,
+                            'taxaJuros' => $jurosMes,
+                            'valorAPagar' => round($valorAPagar, 2),
+                        ];
+                    }
                 }
             }
 
