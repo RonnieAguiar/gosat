@@ -12,4 +12,12 @@ class Consulta extends Model
     {
         return $this->belongsTo(Cpf::class);
     }
+
+    public static function totalPorDia()
+    {
+        return self::selectRaw('DATE(consultado_em) as dia, COUNT(*) as total')
+            ->groupBy('dia')
+            ->orderBy('dia')
+            ->get();
+    }
 }
